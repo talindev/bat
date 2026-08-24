@@ -1,3 +1,4 @@
+#include <_stdio.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -6,43 +7,111 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #define BUFFER_SIZE 4096
-#define PORT 80
 
-// part of Tristan Hundley's Medium post studies
-// executes GET / requests
-int main(int argc, char *argv[]) {
-    char buffer[BUFFER_SIZE];
-    const char *hostname = argv[1];
+int get_socket(char *hostname, in_port_t port) {
     struct hostent *server;
-
     struct sockaddr_in server_addr;
     int sockfd;
+    int connection;
 
-    if (argc != 2 ) {
-        fprintf(stderr, "Error: Only one hostname is accepted for '%s <hostname>'\n", argv[0]);
-        return 1;
-    }
-
-    if ((server = gethostbyname(hostname)) == NULL) {
+    server = gethostbyname(hostname);
+    if (server == NULL) {
         fprintf(stderr, "Error: This host does not exist\n");
         return 1;
     }
 
-    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Error: Could not create socket\n");
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        fprintf(stderr, "Error: Could not create socket\n");
         return 1;
     }
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(PORT);
+    server_addr.sin_port = htons(port);
     memcpy(&server_addr.sin_addr.s_addr, server->h_addr, server->h_length);
 
-    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Error: Could not connect to server, please check hostname\n");
-        close(sockfd);
+    connection = connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    if (connection < 0) {
+        fprintf(stderr, "Error: Could not connect to server\n");
+        return 1;
+    }
+
+    return sockfd;
+}
+
+char *get_protocol(char *url) {
+    char *protocol = strstr(url, ":");
+    if (!protocol) return NULL;
+
+    int protocol_len = protocol - url;
+    char *result = (char *)malloc(protocol_len + 1);
+    if (!result) return NULL;
+
+    strncpy(result, url, protocol_len);
+    result[protocol_len] = '\0';
+    return result;
+}
+
+char *get_hostname(char *url) {
+    char *protocol = get_protocol(url);
+    if (!protocol) return NULL;
+
+    char *hostname = strstr(url + strlen(protocol) + 3, "/");
+    if (!hostname) return NULL;
+
+    char *domain_start = url + strlen(protocol) + 3;
+    int result_len = hostname - domain_start;
+    char *result = (char *)malloc(result_len + 1);
+    strncpy(result, domain_start, result_len);
+    result[result_len] = '\0';
+    free(protocol);
+    return result;
+}
+
+char *get_route(char *url) {
+    char *protocol = get_protocol(url);
+    if (!protocol) return NULL;
+
+    char *hostname = get_hostname(url);
+    if (!hostname) return NULL;
+
+    char *route_start = url + strlen(protocol) + 3 + strlen(hostname);
+    char *route = strstr(route_start, "/");
+    if (!route) return NULL;
+
+    int result_len = strlen(route_start);
+    char *result = (char *)malloc(result_len + 1);
+    strncpy(result, route_start, result_len);
+    result[result_len] = '\0';
+    free(protocol);
+    free(hostname);
+    return result;
+}
+
+// part of Tristan Hundley's Medium post studies
+// executes GET / requests
+int main(int argc, char *argv[]) {
+    char buffer[BUFFER_SIZE];
+    char *hostname = argv[1];
+    struct hostent *server;
+
+
+    struct sockaddr_in server_addr;
+    int sockfd;
+    int PORT = atoi(argv[2]);
+
+    if (argc != 2 ) {
+        fprintf(stderr, "Usage: %s <url> <port>\n", argv[0]);
+        return 1;
+    }
+
+    sockfd = get_socket(hostname, PORT);
+    if (sockfd < 0) {
         return 1;
     }
 
