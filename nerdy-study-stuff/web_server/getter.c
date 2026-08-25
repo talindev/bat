@@ -61,12 +61,22 @@ char *get_hostname(char *url) {
     char *protocol = get_protocol(url);
     if (!protocol) return NULL;
 
-    char *hostname = strstr(url + strlen(protocol) + 3, "/");
-    if (!hostname) return NULL;
-
     char *domain_start = url + strlen(protocol) + 3;
-    int result_len = hostname - domain_start;
+    char *slash = strstr(domain_start, "/");
+
+    int result_len;
+    if (slash != NULL) { // route found
+        result_len = slash - domain_start;
+    } else { // no route
+        result_len = strlen(domain_start);
+    }
+
     char *result = (char *)malloc(result_len + 1);
+    if (!result) {
+        free(protocol);
+        return NULL;
+    }
+
     strncpy(result, domain_start, result_len);
     result[result_len] = '\0';
     free(protocol);
@@ -78,14 +88,26 @@ char *get_route(char *url) {
     if (!protocol) return NULL;
 
     char *hostname = get_hostname(url);
-    if (!hostname) return NULL;
+    if (!hostname) {
+        free(protocol);
+        return NULL;
+    }
 
     char *route_start = url + strlen(protocol) + 3 + strlen(hostname);
-    char *route = strstr(route_start, "/");
-    if (!route) return NULL;
+    if (*route_start == '\0') { // empty route ("/")
+        free(protocol);
+        free(hostname);
+        return NULL;
+    }
 
     int result_len = strlen(route_start);
     char *result = (char *)malloc(result_len + 1);
+    if (!result) {
+        free(protocol);
+        free(hostname);
+        return NULL;
+    }
+
     strncpy(result, route_start, result_len);
     result[result_len] = '\0';
     free(protocol);
