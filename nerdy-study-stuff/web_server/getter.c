@@ -7,10 +7,16 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
+// #include <openssl/ssl.h>
+// #include <openssl/err.h>
 
 #define BUFFER_SIZE 4096
+
+typedef struct {
+    char *protocol;
+    char *hostname;
+    char *route;
+} url_t;
 
 int get_socket(char *hostname, in_port_t port) {
     struct hostent *server;
@@ -44,119 +50,75 @@ int get_socket(char *hostname, in_port_t port) {
     return sockfd;
 }
 
-char *get_protocol(char *url) {
+url_t parse_url(char *url) {
+    url_t result = {NULL, NULL, NULL};
+    if (!url) return result;
+
+    // protocol
     char *protocol = strstr(url, ":");
-    if (!protocol) return NULL;
+    if (!protocol) return result;
 
     int protocol_len = protocol - url;
-    char *result = (char *)malloc(protocol_len + 1);
-    if (!result) return NULL;
+    result.protocol = (char *)malloc(protocol_len + 1);
+    if (result.protocol) {
+        strncpy(result.protocol, url, protocol_len);
+        result.protocol[protocol_len] = '\0';
+    }
 
-    strncpy(result, url, protocol_len);
-    result[protocol_len] = '\0';
-    return result;
-}
-
-char *get_hostname(char *url) {
-    char *protocol = get_protocol(url);
-    if (!protocol) return NULL;
-
-    char *domain_start = url + strlen(protocol) + 3;
+    // hostname
+    char *domain_start = protocol + 3;
     char *slash = strstr(domain_start, "/");
 
-    int result_len;
+    int hostname_len;
     if (slash != NULL) { // route found
-        result_len = slash - domain_start;
+        hostname_len = slash - domain_start;
     } else { // no route
-        result_len = strlen(domain_start);
+        hostname_len = strlen(domain_start);
     }
 
-    char *result = (char *)malloc(result_len + 1);
-    if (!result) {
-        free(protocol);
-        return NULL;
+    result.hostname = (char *)malloc(hostname_len + 1);
+    if (result.hostname) {
+        strncpy(result.hostname, domain_start, hostname_len);
+        result.hostname[hostname_len] = '\0';
     }
 
-    strncpy(result, domain_start, result_len);
-    result[result_len] = '\0';
-    free(protocol);
+    // route
+    if (slash && *slash != '\0') {
+        int route_len = strlen(slash);
+        result.route = (char *)malloc(route_len + 1);
+        if (result.route) {
+            strncpy(result.route, slash, route_len);
+            result.route[route_len] = '\0';
+        }
+    }
+
     return result;
 }
 
-char *get_route(char *url) {
-    char *protocol = get_protocol(url);
-    if (!protocol) return NULL;
-
-    char *hostname = get_hostname(url);
-    if (!hostname) {
-        free(protocol);
-        return NULL;
-    }
-
-    char *route_start = url + strlen(protocol) + 3 + strlen(hostname);
-    if (*route_start == '\0') { // empty route ("/")
-        free(protocol);
-        free(hostname);
-        return NULL;
-    }
-
-    int result_len = strlen(route_start);
-    char *result = (char *)malloc(result_len + 1);
-    if (!result) {
-        free(protocol);
-        free(hostname);
-        return NULL;
-    }
-
-    strncpy(result, route_start, result_len);
-    result[result_len] = '\0';
-    free(protocol);
-    free(hostname);
-    return result;
+void free_url(url_t *url) {
+    if (url->protocol) free(url->protocol);
+    if (url->hostname) free(url->hostname);
+    if (url->route) free(url->route);
 }
 
 // part of Tristan Hundley's Medium post studies
 // executes GET / requests
 int main(int argc, char *argv[]) {
-    char buffer[BUFFER_SIZE];
-    char *hostname = argv[1];
-    struct hostent *server;
+    char *url = argv[1];
+    url_t parsed = parse_url(url);
 
+    printf("protocol: %s\n", parsed.protocol);
+    printf("hostname: %s\n", parsed.hostname);
+    printf("route: %s\n", parsed.route);
 
-    struct sockaddr_in server_addr;
-    int sockfd;
-    int PORT = atoi(argv[2]);
-
-    if (argc != 2 ) {
-        fprintf(stderr, "Usage: %s <url> <port>\n", argv[0]);
-        return 1;
+    if (strcmp(parsed.protocol, "https") == 0) {
+        printf("HTTPS request\n");
+        // TODO: handle https request with openssl
+    } else if (strcmp(parsed.protocol, "http") == 0) {
+        printf("HTTP request\n");
+        // TODO: handle http request with sockets
     }
 
-    sockfd = get_socket(hostname, PORT);
-    if (sockfd < 0) {
-        return 1;
-    }
-
-    snprintf(buffer, sizeof(buffer), "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", hostname);
-    if (send(sockfd, buffer, strlen(buffer), 0) < 0) {
-        perror("Error: Could not send request\n");
-        close(sockfd);
-        return 1;
-    }
-
-    int received;
-    while ((received = recv(sockfd, buffer, sizeof(buffer) - 1, 0)) > 0) {
-        buffer[received] = '\0';
-        printf("\x1b[38;5;154m"); // text color green
-        printf("%s", buffer);
-        printf("\x1b[0m");
-    }
-    if (received < 0) {
-        perror("Error: Could not receive response\n");
-    }
-
-    if (close(sockfd) < 0) {
-        perror("Error: Could not close socket\n");
-        return 1;
-    }
+    free_url(&parsed);
+    return 0;
 }
