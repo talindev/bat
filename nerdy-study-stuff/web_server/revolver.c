@@ -2,7 +2,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -140,20 +139,72 @@ char *dynamic_download(int sockfd, SSL *ssl) {
     return NULL;
 }
 
+int is_valid_method(char *verb) {
+    char *methods[] = {"GET", "POST", "PUT", "PATCH", "DELETE", NULL};
+    for (int i = 0; methods[i] != NULL; i++) {
+        if (strcmp(verb, methods[i]) == 0) return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        perror("Usage: ./revolver <url>");
+    if (argc != 3 && argc != 4) {
+        perror("Usage: ./revolver <url> <verb> <(OPTIONAL) payload between quotes OR @ + json file name (e.g. @payload.json (attach file in this same directory))>");
         return 1;
     }
 
     char *url = argv[1];
-    if (!url) perror("Usage: ./revolver <url>");
+    if (!url) perror("Usage: ./revolver <url> <verb> <?payload between quotes | @ + json file name>");
     url_t parsed = parse_url(url);
+
+    char *verb = argv[2];
+    if (!verb) perror("Usage: ./revolver <url> <verb> <(OPTIONAL) payload between quotes OR @ + json file name (e.g. @payload.json (attach file in this same directory))>");
+    if (!is_valid_method(verb)) {
+        perror("Invalid method (supported methods: GET, POST, PUT, PATCH, DELETE)");
+        return 1;
+    }
+
+    char *payload = NULL;
+    if (argc == 4) {
+        if (argv[3][0] == '@') {
+            FILE *payload_file = fopen(argv[3] + 1, "rb");
+            if (!payload_file) {
+                perror("Failed to open json file");
+                return 1;
+            }
+
+            fseek(payload_file, 0, SEEK_END);
+            unsigned long payload_size = ftell(payload_file);
+            rewind(payload_file);
+
+            char *payload_buffer = (char *)malloc(payload_size + 1);
+            if (!payload_buffer) {
+                perror("Failed to allocate memory for payload buffer");
+                fclose(payload_file);
+                return 1;
+            }
+
+            size_t bytes_read = fread(payload_buffer, 1, payload_size, payload_file);
+            if (bytes_read != payload_size) {
+                perror("Failed to read payload from file");
+                fclose(payload_file);
+                free(payload_buffer);
+                return 1;
+            }
+
+            payload_buffer[payload_size] = '\0';
+            payload = payload_buffer;
+
+            fclose(payload_file);
+        } else {
+            payload = argv[3];
+        }
+    }
 
     int is_https = (strcmp(parsed.protocol, "https") == 0);
     char *port = is_https ? "443" : "80";
 
-    printf("protocol: %s, hostname: %s, route: %s\n", parsed.protocol, parsed.hostname, parsed.route);
+    printf("protocol: %s, hostname: %s, route: %s, verb: %s\n", parsed.protocol, parsed.hostname, parsed.route, verb);
 
     int sockfd = socket_prepare(&parsed, port);
     if (sockfd == -1) {
@@ -162,13 +213,16 @@ int main(int argc, char *argv[]) {
     }
     // connected
 
-    char request[1024];
+    int payload_bytes = payload ? strlen(payload) : 0;
+    char request_headers[1024];
     char *route = parsed.route ? parsed.route : "/";
-    snprintf(request, sizeof(request),
-        "GET %s HTTP/1.1\r\n"
+    snprintf(request_headers, sizeof(request_headers),
+        "%s %s HTTP/1.1\r\n"
         "Host: %s\r\n"
-        "Connection: close\r\n\r\n",
-        route, parsed.hostname);
+        "Connection: close\r\n"
+        "Content-Length: %d\r\n"
+        "\r\n",
+        verb, route, parsed.hostname, payload_bytes);
 
     if (is_https == 1) {
         // https
@@ -182,7 +236,8 @@ int main(int argc, char *argv[]) {
         if (SSL_connect(ssl) <= 0) {
             printf("Error: could not handshake (HTTPS)\n");
         } else {
-            SSL_write(ssl, request, strlen(request));
+            SSL_write(ssl, request_headers, strlen(request_headers));
+            if (payload) SSL_write(ssl, payload, payload_bytes);
             printf("The HTTPS server responded with...\n");
             char *response = dynamic_download(sockfd, ssl);
             printf("%s\n", response);
@@ -192,13 +247,15 @@ int main(int argc, char *argv[]) {
         SSL_CTX_free(ctx);
     } else {
         // http
-        send(sockfd, request, strlen(request), 0);
+        send(sockfd, request_headers, strlen(request_headers), 0);
+        if (payload) send(sockfd, payload, payload_bytes, 0);
         printf("The HTTP server responded with...\n");
         char *response = dynamic_download(sockfd, NULL);
         printf("%s\n", response);
         free(response);
     }
 
+    if (argc == 4 && argv[3][0] == '@') free(payload);
     free_url(&parsed);
     close(sockfd);
     return 0;
