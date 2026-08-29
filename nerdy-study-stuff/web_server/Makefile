@@ -15,6 +15,7 @@ ifeq ($(OS), Darwin)
     OPENSSL_DIR = $(shell brew --prefix openssl)
     CFLAGS += -I$(OPENSSL_DIR)/include
     LDFLAGS = -L$(OPENSSL_DIR)/lib -lssl -lcrypto
+# linux
 else
     $(linux detected. using default libs)
     LDFLAGS = -lssl -lcrypto
