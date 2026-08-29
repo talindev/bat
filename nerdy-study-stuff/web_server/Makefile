@@ -11,13 +11,13 @@ TARGET = revolver
 
 # macOS
 ifeq ($(OS), Darwin)
-    $(macOS detected. configuring OpenSSL with Homebrew)
+    $(info macOS detected. configuring OpenSSL with Homebrew)
     OPENSSL_DIR = $(shell brew --prefix openssl)
     CFLAGS += -I$(OPENSSL_DIR)/include -fsanitize=address -g
     LDFLAGS = -L$(OPENSSL_DIR)/lib -lssl -lcrypto
 # linux
 else
-    $(linux detected. using default libs)
+    $(info linux detected. using default libs)
     LDFLAGS = -lssl -lcrypto
 endif
 
