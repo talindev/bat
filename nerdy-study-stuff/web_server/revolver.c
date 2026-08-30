@@ -240,7 +240,7 @@ int main(int argc, char *argv[]) {
             if (payload) SSL_write(ssl, payload, payload_bytes);
             printf("The HTTPS server responded with...\n");
             char *response = dynamic_download(sockfd, ssl);
-            printf("%s\n", response);
+            printf("\x1b[32m%s\x1b[0m\n", response);
             free(response);
         }
         SSL_free(ssl);
@@ -251,7 +251,7 @@ int main(int argc, char *argv[]) {
         if (payload) send(sockfd, payload, payload_bytes, 0);
         printf("The HTTP server responded with...\n");
         char *response = dynamic_download(sockfd, NULL);
-        printf("%s\n", response);
+        printf("\x1b[32m%s\x1b[0m\n", response);
         free(response);
     }
 
